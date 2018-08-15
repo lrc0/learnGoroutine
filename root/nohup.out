@@ -1,3 +1,0 @@
-2018/08/15 17:57:41.632345 [ERROR] learngoroutine/root/main.go:22: listen tcp 127.0.0.1:8003: bind: address already in use
-2018/08/15 17:57:48.372836 [ERROR] learngoroutine/root/main.go:22: listen tcp 127.0.0.1:8002: bind: address already in use
-2018/08/15 17:57:52.446063 [ERROR] learngoroutine/root/main.go:22: listen tcp 127.0.0.1:8001: bind: address already in use
