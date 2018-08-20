@@ -43,26 +43,3 @@ func china(conn net.Conn) {
 		time.Sleep(1 * time.Second)
 	}
 }
-
-// func usa() {
-// 	u, err := time.LoadLocation("US/Eastern")
-// 	if err != nil {
-// 		log.Error(err)
-// 		return
-// 	}
-// 	usa := now.In(u).Format(layout)
-// 	// fmt.Println("usa: ", usa)
-// 	ch <- usa
-// }
-
-// func london() {
-// 	t, err := time.LoadLocation("Europe/London")
-// 	london := now.In(t).Format(layout)
-// 	if err != nil {
-// 		log.Error(err)
-// 		return
-// 	}
-
-// 	// fmt.Println("london: ", london)
-// 	ch <- london
-// }
