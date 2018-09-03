@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat
+  namespace: matrix-plugin
+data:
+  containers.yml: |-
+    queue:
+     mem:
+      events: 1000000
+      flush.min_events: 5000
+      flush.timeout: 1s
+    filebeat:
+      registry_file: /data/registry
+      prospectors:
+      - paths:
+        - '/var/lib/docker/containers/*/*.log' # 防止重启filebeat log.* 文件没有读取完
+        json.message_key: log  # 指定json格式的日志文件中的某一个字段下的值进行过滤或者多行聚合
+        json.keys_under_root: true
+        multiline.pattern: '^[[:space:]]'
+        multiline.negate: false
+        multiline.match: after
+        processors:
+        - add_docker_metadata: ~
+        - add_kubernetes_metadata:
+            in_cluster: true
+            namespace: matrix-plugin
+            include_fields:
+              fields: ["kubernetes.labels.matrix-application", "kubernetes.labels.matrix-application-groups"]
+        - drop_fields:
+            fields: ["docker.container.labels.annotation.io", "docker.container.labels.io", "beat", "offset", "source", "stream", "time", "docker.container.labels.org", "docker.container.labels"]
+    setup.template.name: "${NODE_NAME}"
+    setup.template.pattern: "${NODE_NAME}-*"
+    setup.template.overwrite: true
+    output.kafka:
+      # initial brokers for reading cluster metadata
+      hosts: ["${KAFKA01}", "${KAFKA02}", "${KAFKA03}"]
+      # message topic selection + partitioning
+      topic: 'matrix-mce-filebeat-dev'
+      partition.round_robin:
+      reachable_only: false
+      required_acks: 1

@@ -1,0 +1,101 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata: 
+  name: Deployment-ElasticSearch
+  namespace: rc-ns
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels: 
+        app: rc-es
+  spec:
+    containers:
+      - name: k8s-es
+        image: elasticsearch:rc
+    port:
+      - containerPort: 9200
+---
+apiVersion: v1
+kind: service
+metadata:
+  name: rcservice-es
+  namespace: rc-ns
+  labels: 
+    app: rc-es 
+spec:
+  ports: 
+  - port: 8082
+    protocol: TCP
+    targetPort: 9200
+  selector: 
+    app: rc-es
+  sessionAffinity: None
+  type: NodePort
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-config
+  namespace: rc-ns
+data:
+  filebeat.yml: |-
+     queue:
+      mem:
+       events: 100000 
+       flush.min_events: 5000
+       flush.timeout: 1s 
+     filebeat:
+       registry_flush: 30s
+       registry_file: /data/registry
+       prospectors:
+       - paths:
+         - '/var/lib/docker/containers/*/*.log*' # 防止重启filebeat log.* 文件没有读取完
+         harvester_buffer_size: 1048576 # 1m 
+         multiline.pattern: '^[[:space:]]' # 以空字符开头的合并成一条记录
+         multiline.negate: false
+         multiline.match: after
+         close_removed: true
+         clean_removed: true
+         json.message_key: log
+         json.keys_under_root: true
+        #  processors:
+        #  - add_kubernetes_metadata:
+        #      in_cluster: true
+        #      namespace: "ekos-plugin"
+        #      include_labels: ["ekos-app", "type", "ekos-application", "ekos-service", "log-ignore"]
+        #      host: ${NODE_NAME}
+        #  - drop_event: # 忽略掉数据
+        #     when:
+        #      equals:
+        #       kubernetes.labels.log-ignore: "true"
+     setup.template.name: "filebeat"
+     setup.template.pattern: "filebeat-*"
+     output:
+        #logstash:
+        #  index: "filebeat"
+        #   hosts: ["${LOGSTASH_HOST}"]
+        elasticsearch:
+            hosts: [ "${ELASTICSEARCH_HOSTS}" ]
+            worker: 24
+            protocol: "http"
+            bulk_max_size: 4000                   
+            compression_level: 0
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata: 
+  name: DaemonSet-filebeat
+  namespace: rc-ns
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels: 
+        app: rc-fb
+  spec:
+    containers:
+      - name: k8s-fb
+        image: filebeat:rc
+---

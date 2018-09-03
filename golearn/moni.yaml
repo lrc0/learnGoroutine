@@ -1,0 +1,520 @@
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: ekos-monitor-server
+  namespace: ekos-plugin
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        ekos-app: ekos-monitor-server
+    spec: 
+      tolerations:
+      - key: "ekos.ghostcloud.cn/taint-role"
+        operator: "Equal"
+        value: "master"
+        effect: "NoSchedule"
+      containers:
+      - name: monitor
+        image: registry.ekos.local/ekos/monitor
+        resources:
+          limits:
+            cpu: 500m
+            memory: 500M
+          requests:
+            cpu: 100m
+            memory: 100M
+        ports:
+        - containerPort: 8080
+        env:
+        - name: "DATABASE_TYPE"
+          value: "mysql"
+        - name: "MYSQL_DATABASE"
+          value: "ekos_plugin_monitor"
+        - name: "MYSQL_HOST"
+          value: "node1的IP"  # 修改成node1的IP
+        - name: "MYSQL_PORT"
+          value: "3306"
+        - name: "MYSQL_USR"
+          value: "root"
+        - name: "MYSQL_PWD"
+          value: "auth里面的password" # 修改成auth里面的password
+        - name: "PROMETHEUS"
+          value: "prometheus"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: monitor
+  namespace: ekos-plugin
+spec:
+  selector:
+    ekos-app: ekos-monitor-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: ekos-plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      name: alertmanager
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: watcher
+        image: registry.ekos.local/ekos/inotify-tools:latest
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager/
+        env:
+        - name: "FILES"
+          value: "/etc/alertmanager"
+        - name: "WEB_HOOK"
+          value: "http://alertmanager:9093/-/reload"
+      - name: alertmanager
+        image: registry.ekos.local/ekos/alertmanager:latest
+        args:
+          - '-config.file=/etc/alertmanager/config.yml'
+          - '-storage.path=/alertmanager'
+          - '-web.external-url=http://修改成svc对应的IP}:30124' # 修改成svc对应的IP
+        ports:
+        - name: alertmanager
+          containerPort: 9093
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager
+        - name: alertmanager
+          mountPath: /alertmanager
+      volumes:
+      - name: config-volume
+        configMap:
+          name: alertmanager
+      - name: alertmanager
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/path: '/metrics'
+  labels:
+    name: alertmanager
+  name: alertmanager
+  namespace: ekos-plugin
+spec:
+  selector:
+    app: alertmanager
+  type: NodePort
+  ports:
+  - name: alertmanager
+    protocol: TCP
+    port: 9093
+    targetPort: 9093
+    nodePort: 30124
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: ekos-plugin
+spec:
+  replicas: 1 #  不能同时存在两个数据会被弄重复
+  template:
+    metadata:
+      labels:
+        app: kube-state-metrics
+    spec:
+      containers:
+      - name: kube-state-metrics
+        image: registry.ekos.local/ekos/kube-state-metrics:v0.5.0
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+  name: kube-state-metrics
+  namespace: ekos-plugin
+  labels:
+    app: kube-state-metrics
+spec:
+  ports:
+  - name: kube-state-metrics
+    port: 8080
+    protocol: TCP
+  selector:
+    app: kube-state-metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-core
+  namespace: ekos-plugin
+data:
+  prometheus.yaml: |
+    global:
+        scrape_interval: 15s
+        scrape_timeout: 15s
+        evaluation_interval: 10s
+    rule_files:
+        - "/etc/prometheus-rules/*.rules"
+    scrape_configs:
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+      - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+    
+    # Scrape config for service endpoints.
+    #
+    # The relabeling allows the actual service scrape endpoint to be configured
+    # via the following annotations:
+    #
+    # * `prometheus.io/scrape`: Only scrape services that have a value of `true`
+    # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+    # to set this to `https` & most likely set the `tls_config` of the scrape config.
+    # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+    # * `prometheus.io/port`: If the metrics are exposed on a different port to the
+    # service then set this appropriately.
+    - job_name: 'kubernetes-service-endpoints'
+      kubernetes_sd_configs:
+      - role: endpoints
+    
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_name
+    
+    # Example scrape config for probing services via the Blackbox Exporter.
+    #
+    # The relabeling allows the actual service scrape endpoint to be configured
+    # via the following annotations:
+    #
+    # * `prometheus.io/probe`: Only probe services that have a value of `true`
+    - job_name: 'kubernetes-services'
+    
+      metrics_path: /probe
+      params:
+        module: [http_2xx]
+    
+      kubernetes_sd_configs:
+      - role: service
+    
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+        action: keep
+        regex: true
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox
+      - source_labels: [__param_target]
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: kubernetes_name
+    
+    # Example scrape config for pods
+    #
+    # The relabeling allows the actual pod scrape endpoint to be configured via the
+    # following annotations:
+    #
+    # * `prometheus.io/scrape`: Only scrape pods that have a value of `true`
+    # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+    # * `prometheus.io/port`: Scrape the pod on the indicated port instead of the
+    # pod's declared ports (default is a port-free target if none are declared).
+    - job_name: 'kubernetes-pods'
+    
+      kubernetes_sd_configs:
+      - role: pod
+    
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: prometheus-core
+  namespace: ekos-plugin
+  labels:
+    app: prometheus
+    component: core
+spec: 
+  replicas: 1
+  template:
+    metadata:
+      name: prometheus-main
+      labels:
+        app: prometheus
+        component: core
+    spec:
+      tolerations:
+      - key: "ekos.ghostcloud.cn/taint-role"
+        operator: "Equal"
+        value: "monitor"
+        effect: "NoExecute"
+      nodeSelector:
+        ekos.ghostcloud.cn/label-role: monitor
+      containers:
+      - name: watcher
+        image: registry.ekos.local/ekos/inotify-tools:latest
+        volumeMounts:
+        - name: rules-volume
+          mountPath: /etc/prometheus-rules
+        env:
+        - name: "FILES"
+          value: "/etc/prometheus-rules"
+        - name: "WEB_HOOK"
+          value: "http://prometheus:9090/-/reload"
+      - name: prometheus
+        image: registry.ekos.local/ekos/prometheus:v1.7.0
+        args:
+          - '-storage.local.retention=168h'
+          - '-config.file=/etc/prometheus/prometheus.yaml'
+          - '-alertmanager.url=http://alertmanager:9093/'
+          - '-storage.local.target-heap-size=4000000000'
+          - '-web.external-url=http://修改成svc对应的IP:30125' # 修改成svc对应的IP
+        ports:
+        - name: webui
+          containerPort: 9090
+        volumeMounts:
+        - name: data
+          mountPath: /prometheus/data
+        - name: config-volume
+          mountPath: /etc/prometheus
+        - name: rules-volume
+          mountPath: /etc/prometheus-rules
+      volumes:
+      - name: data
+        hostPath:
+          path: /prometheus/data
+      - name: config-volume
+        configMap:
+          name: prometheus-core
+      - name: rules-volume
+        configMap:
+          name: prometheus-rules
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: prometheus-node-exporter
+  namespace: ekos-plugin
+  labels:
+    app: prometheus
+    component: node-exporter
+spec:
+  template:
+    metadata:
+      annotations:
+         prometheus.io/scrape: 'true'
+      name: prometheus-node-exporter
+      labels:
+        app: prometheus
+        component: node-exporter
+    spec:
+      tolerations:
+      - operator: "Exists"
+      containers:
+      - image: registry.ekos.local/ekos/node-exporter:v0.14.0
+        name: prometheus-node-exporter
+        ports:
+        - name: prom-node-exp
+          #^ must be an IANA_SVC_NAME (at most 15 characters, ..)
+          containerPort: 9100
+          hostPort: 9100
+      hostNetwork: true
+      hostPID: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-node-exporter
+  namespace: ekos-plugin
+  labels:
+    app: prometheus
+    component: node-exporter
+spec:
+  ports:
+    - name: prometheus-node-exporter
+      port: 9100
+      protocol: TCP
+  selector:
+    app: prometheus
+    component: node-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: ekos-plugin
+  labels:
+    app: prometheus
+    component: core
+  annotations:
+    prometheus.io/scrape: 'true'
+spec:
+  type: NodePort
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: webui
+      nodePort: 30125
+  selector:
+    app: prometheus
+    component: core
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: ekos-plugin
+  name: prometheus-cadvisor
+  labels:
+    app: prometheus
+    component: cadvisor-core
+spec:
+  clusterIP: None
+  ports:
+  - name: scrape
+    port: 8080
+    protocol: TCP
+  selector:
+    app: prometheus
+    component: cadvisor-core
+    type: ClusterIP
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: prometheus-cadvisor
+  namespace: ekos-plugin
+spec:
+  template:
+    metadata:
+      annotations:
+         prometheus.io/scrape: 'true'
+      labels:
+         app: prometheus
+         component: cadvisor-core
+    spec:
+      tolerations:
+      - operator: "Exists"
+      hostNetwork: true
+      containers:
+      - name: cadvisor
+        image: registry.ekos.local/ekos/cadvisor:v0.24.0
+        args: [ "-port=1086", "-profiling=true", "-housekeeping_interval=10s" ]
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200M
+          limits:
+            cpu: 1600m
+            memory: 800M
+        volumeMounts:
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+        - name: rootfs
+          mountPath: /rootfs
+          readOnly: true
+        - name: var-run
+          mountPath: /var/run
+          readOnly: false
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: docker
+          mountPath: /var/lib/docker
+          readOnly: true
+        ports:
+        - name: scrape
+          containerPort: 1086
+          hostPort: 1086
+          protocol: TCP
+        securityContext:
+          privileged: true
+      hostPID: true
+      volumes:
+        - name: cgroup
+          hostPath:
+           path: /sys/fs/cgroup
+        - name: rootfs
+          hostPath:
+           path: /
+        - name: var-run
+          hostPath:
+           path: /var/run
+        - name: sys
+          hostPath:
+           path: /sys
+        - name: docker
+          hostPath:
+           path: /var/lib/docker

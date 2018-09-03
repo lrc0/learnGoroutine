@@ -1,0 +1,88 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: alertmanager
+  name: alertmanager
+spec:
+  type: NodePort
+  selector:
+    app: alertmanager
+  ports:
+  - name: webui
+    port: 9093
+---
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: alertmanager
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.5.0
+        args:
+        - -config.file=/etc/alertmanager/config.yml
+        - -storage.path=/alertmanager
+        ports:
+        - name: webui
+          hostPort: 9093
+          containerPort: 9093
+        resources:
+          requests:
+            cpu: 10m
+            memory: 10Mi
+          limits:
+            cpu: 50m
+            memory: 150Mi
+        volumeMounts:
+        - mountPath: /alertmanager
+          name: data
+        - mountPath: /etc/alertmanager
+          name: config-volume
+      volumes:
+      - emptyDir: {}
+        name: data
+      - configMap:
+          name: alertmanager-config
+        name: config-volume
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: alertmanager-config
+data:
+  config.yml:
+    global:
+      resolve_timeout: 1m
+
+      # The smarthost and SMTP sender used for mail notifications.
+      smtp_smarthost: 'localhost:25'
+      smtp_from: 'root@localhost.localdomain'
+      # The auth token for Hipchat.
+      hipchat_auth_token: '1234556789'
+      # Alternative host for Hipchat.
+      hipchat_url: 'https://hipchat.foobar.org/'
+
+      route:
+      group_by: ['alertname']
+      group_wait: 5s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'ruicai'
+
+      # receivers:
+      # - name: 'ruicai'
+      # webhook_configs:
+      # - url: http://http://localhost:5001/
+      #     send_resolved: true
+      email_configs:
+      - to: '313352050@qq.com'
+      send_resolved: true
+      require_tls: false
