@@ -33,10 +33,10 @@ func processRecvData(conn net.Conn) {
 			if err == io.EOF {
 				log.Error("ERR: ", err)
 				conn.Close()
-				os.Exit(-1)
+				os.Exit(1)
 			}
 		}
-		fmt.Fprintf(os.Stdout, "%s: %s", conn.RemoteAddr().String(), string(buffer[:b]))
+		fmt.Fprintf(os.Stdout, "%s: %s", login(), string(buffer[:b]))
 	}
 }
 
@@ -54,8 +54,12 @@ func processSendData(conn net.Conn) {
 
 func sendpackage(conn net.Conn) {
 	for i := 1; ; i++ {
-		mass := strconv.Itoa(i) + " times" + "===> send heart beat from client: " + conn.RemoteAddr().String() + "\n"
+		mass := strconv.Itoa(i) + " times" + "===> send heart beat from client: " + login() + "\n"
 		conn.Write([]byte(mass))
 		time.Sleep(55 * time.Second)
 	}
+}
+
+func login() string {
+	return os.Args[1]
 }

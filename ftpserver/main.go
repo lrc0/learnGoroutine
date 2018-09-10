@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	// "io"
 	"net"
@@ -10,6 +9,8 @@ import (
 
 	"gopkg.in/logger.v1"
 )
+
+var connPool = make(map[string]net.Conn)
 
 func main() {
 	listener, err := net.Listen("tcp", "localhost:8001")
@@ -28,9 +29,9 @@ func main() {
 		}
 		conn.SetDeadline(time.Now().Add(time.Second * time.Duration(60)))
 		log.Info(conn.RemoteAddr().String(), "=====>> connection success")
+		connPool[conn.RemoteAddr().String()] = conn
 
 		go handleConn(conn)
-		processSendData(conn)
 	}
 }
 
@@ -47,10 +48,9 @@ func handleConn(conn net.Conn) {
 		if err != nil {
 			log.Error("ERR: ", err)
 			conn.Close()
-			os.Exit(-1)
 			break
 		}
-
+		broadCast(buffer[:b], conn.RemoteAddr().String())
 		go getMassage(b, mess)
 
 		fmt.Fprintf(os.Stdout, "%s: %s", conn.RemoteAddr().String(), string(buffer[:b]))
@@ -75,15 +75,11 @@ func getMassage(bytes int, mess chan int) {
 	close(mess)
 }
 
-//写信息到conn
-func processSendData(conn net.Conn) {
-	for {
-		buf := bufio.NewReader(os.Stdin)
-		mas, err := buf.ReadString('\n')
-		if err != nil {
-			log.Error(err)
-			os.Exit(-1)
+//广播
+func broadCast(msg []byte, name string) {
+	for k, con := range connPool {
+		if k != name {
+			con.Write([]byte(msg))
 		}
-		conn.Write([]byte(mas))
 	}
 }

@@ -83,27 +83,23 @@ func (cp *ConnPool) Get() (ConnRes, error) {
 		select {
 		//从通道中获取连接资源
 		case connRes, ok := <-cp.conns:
-			{
-				if !ok {
-					return nil, errors.New("连接池已关闭")
-				}
-				//判断连接中的时间，如果超时，则关闭
-				//继续获取
-				if time.Now().Sub(connRes.time) > cp.connTimeOut {
-					connRes.conn.Close()
-					continue
-				}
-				return connRes.conn, nil
+			if !ok {
+				return nil, errors.New("连接池已关闭")
 			}
+			//判断连接中的时间，如果超时，则关闭
+			//继续获取
+			if time.Now().Sub(connRes.time) > cp.connTimeOut {
+				connRes.conn.Close()
+				continue
+			}
+			return connRes.conn, nil
 		default:
-			{
-				//如果无法从通道中获取资源，则重新创建一个资源返回
-				connRes, err := cp.factory()
-				if err != nil {
-					return nil, err
-				}
-				return connRes, nil
+			//如果无法从通道中获取资源，则重新创建一个资源返回
+			connRes, err := cp.factory()
+			if err != nil {
+				return nil, err
 			}
+			return connRes, nil
 		}
 	}
 }
@@ -152,9 +148,7 @@ func (cp *ConnPool) len() int {
 
 func main() {
 
-	cp, _ := NewConnPool(func() (ConnRes, error) {
-		return net.Dial("tcp", ":8001")
-	}, 12, time.Second*10)
+	cp, _ := NewConnPool(func() (ConnRes, error) { return net.Dial("tcp", ":8001") }, 12, time.Second*10)
 
 	//获取资源
 	conn1, _ := cp.Get()
@@ -188,3 +182,4 @@ func main() {
 	fmt.Println("cp len : ", cp.len())
 	cp.Close()
 }
+
