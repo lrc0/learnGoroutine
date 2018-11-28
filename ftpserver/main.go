@@ -30,6 +30,7 @@ func main() {
 		conn.SetDeadline(time.Now().Add(time.Second * time.Duration(60)))
 		log.Info(conn.RemoteAddr().String(), "=====>> connection success")
 		connPool[conn.RemoteAddr().String()] = conn
+		fmt.Println("pool cap: ", len(connPool))
 
 		go handleConn(conn)
 	}
@@ -46,8 +47,7 @@ func handleConn(conn net.Conn) {
 
 		b, err := conn.Read(buffer)
 		if err != nil {
-			log.Error("ERR: ", err)
-			conn.Close()
+			closeConn(conn.RemoteAddr().String(), connPool)
 			break
 		}
 		broadCast(buffer[:b], conn.RemoteAddr().String())
@@ -61,10 +61,10 @@ func heartbeat(conn net.Conn, mess chan int) {
 	select {
 	case <-mess:
 		conn.SetDeadline(time.Now().Add(time.Duration(60) * time.Second))
-		// fmt.Println("Add more time")
 	case <-time.After(59 * time.Second):
 		log.Info("close connection for 60 second without input")
-		conn.Close()
+		closeConn(conn.RemoteAddr().String(), connPool)
+		log.Info("DELETE ", conn.RemoteAddr().String())
 	}
 }
 
@@ -79,7 +79,16 @@ func getMassage(bytes int, mess chan int) {
 func broadCast(msg []byte, name string) {
 	for k, con := range connPool {
 		if k != name {
-			con.Write([]byte(msg))
+			con.Write(msg)
+		}
+	}
+}
+
+func closeConn(addr string, con map[string]net.Conn) {
+	for name, conn := range con {
+		if name == addr {
+			conn.Close()
+			delete(con, addr)
 		}
 	}
 }

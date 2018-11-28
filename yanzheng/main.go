@@ -2,21 +2,21 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/zhenorzz/snowflake"
 )
 
 func main() {
-	ch := make(chan string)
-	go setData(ch)
-	fmt.Println("1:", <-ch)
-	fmt.Println("2:", <-ch)
-	fmt.Println("3:", <-ch)
-	fmt.Println("4:", <-ch)
-	fmt.Println("5:", <-ch)
-}
-func setData(ch chan string) {
-	ch <- "test"
-	ch <- "hello wolrd"
-	ch <- "123"
-	ch <- "456"
-	ch <- "789"
+
+	// Create a new Node with a Node number of 1
+	sf, err := snowflake.New(0)
+	if err != nil {
+		panic(err)
+	}
+
+	// Generate a snowflake ID.
+	uuid, _ := sf.Generate()
+
+	// Print
+	fmt.Println(uuid)
 }

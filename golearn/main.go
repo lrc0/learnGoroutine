@@ -12,7 +12,7 @@ var (
 )
 
 func main() {
-	consumer, err := sarama.NewConsumer([]string{"10.129.25.12:9092", "10.129.25.13:9092", "10.129.25.14:9092"}, nil)
+	consumer, err := sarama.NewConsumer([]string{""}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -24,7 +24,7 @@ func main() {
 	}
 
 	for partition := range partitionList {
-		pc, err := consumer.ConsumePartition("matrix-mce-dve16", int32(partition), sarama.OffsetNewest)
+		pc, err := consumer.ConsumePartition("", int32(partition), sarama.OffsetNewest)
 		if err != nil {
 			panic(err)
 		}
