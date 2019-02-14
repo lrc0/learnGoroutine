@@ -1,98 +1,95 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"strconv"
-	"time"
+	// "strconv"
+	// "strings"
 
 	"gopkg.in/logger.v1"
 )
 
 func main() {
-
-	conn, err := net.Dial("tcp", "localhost:8001")
+	ch := make(chan int)
+	host := os.Args[1]
+	port := os.Args[2]
+	filename := os.Args[3]
+	conn, err := net.Dial("tcp", host+":"+port)
 	if err != nil {
 		log.Error(err)
 		os.Exit(-1)
 		return
 	}
-	go sendpackage(conn)
-	go processRecvData(conn)
-	processSendData(conn)
+	go sendPackage(conn, filename, ch)
+	<-ch
 }
 
-func processRecvData(conn net.Conn) {
-	name, err := login()
+func sendPackage(conn net.Conn, filename string, ch chan int) {
+
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
-		conn.Close()
+		log.Error(err)
 		return
 	}
-	buffer := make([]byte, 2048)
-	for {
-		b, err := conn.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				msg := fmt.Sprintf("%s 退出聊天室", name)
-				conn.Write([]byte(msg))
-				// conn.Close()
-				os.Exit(1)
-			}
-		}
-		fmt.Fprintf(os.Stdout, "%s: %s", name, string(buffer[:b]))
-	}
-}
+	defer file.Close()
 
-func processSendData(conn net.Conn) {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	//发送文件名到服务端
+	buf := make([]byte, 4096)
+	conn.Write([]byte(fileInfo.Name()))
+
+	//接收服务端返回的OK
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	if string(buf[:n]) != "ok" {
+		log.Fatal("Server is not receive the filename")
+	}
+
+	var total int
+	//开始正式传输文件内容
 	for {
-		buf := bufio.NewReader(os.Stdin)
-		mas, err := buf.ReadString('\n')
+		buf := make([]byte, 4096)
+		n, err := file.Read(buf)
+		if err == io.EOF && n == 0 {
+			ch <- 1
+			break
+		}
 		if err != nil {
 			log.Error(err)
-			os.Exit(-1)
+			return
 		}
-		conn.Write([]byte(mas))
+		total += n
+		print(float64(fileInfo.Size()), float64(total))
+		conn.Write(buf[:n])
 	}
 }
 
-func sendpackage(conn net.Conn) {
-	name, err := login()
-	if err != nil {
-		conn.Close()
-		return
+func bar(count, size float64) string {
+	str := ""
+	for i := float64(0); i < size; i++ {
+		if i < count {
+			str += "="
+		} else {
+			str += " "
+		}
 	}
-	for i := 1; ; i++ {
-		mass := strconv.Itoa(i) + " times" + "===> send heart beat from client: " + name + "\n"
-		conn.Write([]byte(mass))
-		time.Sleep(55 * time.Second)
-	}
+	return str
 }
 
-func login() (string, error) {
-	slice := []string{
-		"ruicai",
-		"baiwei",
-		"xiaoyimei",
-	}
-
-	taget := os.Args[1]
-	m := make(map[string]bool)
-
-	for _, name := range slice {
-		m[name] = true
-	}
-
-	if m[taget] == true {
-		log.Info("登录成功")
-	} else {
-		log.Error("登录失败")
-		os.Exit(-1)
-		return "", errors.New("登录失败")
-	}
-
-	return taget, nil
+func print(fileSize, total float64) {
+	size := float64(fileSize)
+	per := (total / size) * 100
+	str := "[" + bar(per, 100) + "] " + fmt.Sprintf("%.2f", per) + "%"
+	fmt.Printf("\r%s", str)
+	fmt.Println("")
 }
