@@ -11,14 +11,14 @@ import (
 var connPool = make(map[string]*net.Conn)
 
 func main() {
-	host := os.Args[1]
-	port := os.Args[2]
-	listener, err := net.Listen("tcp", host+":"+port)
+	// host := os.Args[1]
+	// port := os.Args[2]
+	listener, err := net.Listen("tcp", "0.0.0.0:8001")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer listener.Close()
-	log.Infof("listen on %s", host+":"+port)
+	log.Infof("listen on %s", "0.0.0.0:8001")
 	log.Info("waiting for connect ....")
 
 	for {

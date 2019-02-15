@@ -42,7 +42,7 @@ func main() {
 	}
 }
 func connect(p string) net.Conn {
-	conn, err := net.Dial("tcp", "localhost:"+p)
+	conn, err := net.Dial("tcp", "0.0.0.0:"+p)
 	if err != nil {
 		log.Error(err)
 		return nil

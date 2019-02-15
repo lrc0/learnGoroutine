@@ -16,7 +16,7 @@ var zone = flag.String("zone", os.Args[2], "zone")
 
 func main() {
 	flag.Parse()
-	listener, err := net.Listen("tcp", "localhost:"+*p)
+	listener, err := net.Listen("tcp", "0.0.0.0:"+*p)
 	if err != nil {
 		log.Error(err)
 		return

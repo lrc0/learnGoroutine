@@ -69,9 +69,12 @@ func sendPackage(conn net.Conn, filename string, ch chan int) {
 			return
 		}
 		total += n
-		print(float64(fileInfo.Size()), float64(total))
+
+		per := (float64(total) / float64(fileInfo.Size())) * 100
+		fmt.Printf("\r[%s] %s%s", bar(per, 100), fmt.Sprintf("%.2f", per), fmt.Sprintf("%s", "% "))
 		conn.Write(buf[:n])
 	}
+	fmt.Println()
 }
 
 func bar(count, size float64) string {
