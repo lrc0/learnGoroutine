@@ -88,11 +88,3 @@ func bar(count, size float64) string {
 	}
 	return str
 }
-
-func print(fileSize, total float64) {
-	size := float64(fileSize)
-	per := (total / size) * 100
-	str := "[" + bar(per, 100) + "] " + fmt.Sprintf("%.2f", per) + "%"
-	fmt.Printf("\r%s", str)
-	fmt.Println("")
-}
